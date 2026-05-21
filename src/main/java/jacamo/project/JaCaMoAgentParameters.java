@@ -3,7 +3,6 @@ package jacamo.project;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -169,6 +168,16 @@ public class JaCaMoAgentParameters extends AgentParameters {
             s.append(" : "+asSource);
         }
         s.append(" {\n");
+        appendBasicProperties(s);
+        appendArchClasses(s);
+        appendOptions(s);
+        appendWorkspaces(s);
+        appendFocusEntries(s);
+        appendRoles(s);
+        return s.toString().trim() + "\n   }\n";
+    }
+
+    private void appendBasicProperties(StringBuilder s) {
         if (getNbInstances() != 1) {
             s.append("      instances: "+getNbInstances()+"\n");
         }
@@ -181,7 +190,9 @@ public class JaCaMoAgentParameters extends AgentParameters {
         if (bbClass != null && bbClass.getClassName().length() > 0 && !bbClass.getClassName().equals(DefaultBeliefBase.class.getName())) {
             s.append("      ag-bb-class: "+bbClass+"\n");
         }
+    }
 
+    private void appendArchClasses(StringBuilder s) {
         boolean first = true;
         for (ClassParameters c: archClasses) {
             if (c.getClassName().length() > 0 && !c.getClassName().equals(AgArch.class.getName())) {
@@ -193,59 +204,66 @@ public class JaCaMoAgentParameters extends AgentParameters {
                 }
             }
         }
+    }
 
-        if (options != null && !options.isEmpty()) {
-            Iterator<String> i = options.keySet().iterator();
-            while (i.hasNext()) {
-                String k = i.next();
-                try {
-                    if (k.equals("beliefs")) {
-                        s.append("      beliefs: ");
-                        String bgn = "";
-                        for (Term t: ASSyntax.parseList("["+options.get(k)+"]")) {
-                            s.append(bgn+t+"\n");
-                            bgn = "               ";
-                        }
-                    } else if (k.equals("goals")) {
-                        s.append("      goals:  ");
-                        String bgn = "";
-                        for (Term t: ASSyntax.parseList("["+options.get(k)+"]")) {
-                            s.append(bgn+t+"\n");
-                            bgn = "              ";
-                        }
-                    } else {
-                        s.append("      "+k+": "+options.get(k)+"         // app domain argument \n");
-                    }
-                } catch (ParseException e) {
-                    e.printStackTrace();
+    private void appendOptions(StringBuilder s) {
+        if (options == null || options.isEmpty()) {
+            return;
+        }
+        for (String k : options.keySet()) {
+            try {
+                if (k.equals("beliefs")) {
+                    appendTermList(s, "      beliefs: ", "               ", options.get(k));
+                } else if (k.equals("goals")) {
+                    appendTermList(s, "      goals:  ", "              ", options.get(k));
+                } else {
+                    s.append("      "+k+": "+options.get(k)+"         // app domain argument \n");
                 }
+            } catch (ParseException e) {
+                e.printStackTrace();
             }
         }
+    }
 
+    private void appendTermList(StringBuilder s, String header, String continuation, String value) throws ParseException {
+        s.append(header);
+        String bgn = "";
+        for (Term t: ASSyntax.parseList("["+value+"]")) {
+            s.append(bgn+t+"\n");
+            bgn = continuation;
+        }
+    }
+
+    private void appendWorkspaces(StringBuilder s) {
         String bgn = "\n      // join: ";
         for (String w: wks) {
             s.append(bgn+w);
-            JaCaMoWorkspaceParameters jw = project.getWorkspace(w);
-            if (jw != null && jw.getNode() != null)
-                s.append("@"+jw.getNode());
+            appendNodeSuffix(s, project.getWorkspace(w));
             bgn = ", ";
         }
+    }
 
-        bgn = "\n      // focus: ";
+    private void appendFocusEntries(StringBuilder s) {
+        String bgn = "\n      // focus: ";
         for (String[] f: focus) {
             s.append(bgn+f[1]+"."+f[0]);
-            JaCaMoWorkspaceParameters jw = project.getWorkspace(f[1]);
-            if (jw != null && jw.getNode() != null)
-                s.append("@"+jw.getNode());
+            appendNodeSuffix(s, project.getWorkspace(f[1]));
             bgn = ", ";
         }
+    }
 
-        bgn = "\n      // roles: ";
+    private void appendNodeSuffix(StringBuilder s, JaCaMoWorkspaceParameters jw) {
+        if (jw != null && jw.getNode() != null) {
+            s.append("@"+jw.getNode());
+        }
+    }
+
+    private void appendRoles(StringBuilder s) {
+        String bgn = "\n      // roles: ";
         for (String[] r: roles) {
             s.append(bgn+r[2]+" in "+r[0]+"."+r[1]);
             bgn = ", ";
         }
-        return s.toString().trim() + "\n   }\n";
     }
 
 
