@@ -86,115 +86,17 @@ public class JaCaMoLauncher extends RunCentralisedMAS {
     
     @Override
     public int init(String[] args) {
-        String projectFileName = null;
-        if (args.length < 1) {
-            if (RunCentralisedMAS.class.getResource("/"+defaultProjectFileName) != null) {
-                projectFileName = defaultProjectFileName;
-                readFromJAR = true;
-                Config.get(false); // to void to call fix/store the configuration in this case everything is read from a jar/jnlp file
-            } else {
-                System.out.println("JaCaMo "+Config.get().getJaCaMoVersion());
-                System.err.println("You should inform the project file.");
-                JOptionPane.showMessageDialog(null,"You should inform the project file as a parameter.\n\nJaCaMo version "+Config.get().getJaCaMoVersion(),"JaCaMo", JOptionPane.INFORMATION_MESSAGE);
-                System.exit(0);
-            }
-        } else {
-            Config.get(); // to setup the JaCaMo Config
-            projectFileName = args[0];
-        }
-
-        // jacamo.jar and moise.jar must be configured (for includes)
-        if (Config.get().getJaCaMoHome().isEmpty() || Config.get().get(Config.MOISE_JAR) == null) {
-            //if (Config.get().getUserConfFile().exists())
-            //    System.out.println("JaCaMo is not configured, creating a default configuration.");
-            //else
-            Config.get().setShowFixMsgs(false);
-            Config.get().fix();             
-        }
-
-        setupLogger();
-
-        if (args.length >= 2) {
-            if (args[1].equals("-debug")) {
-                debug = true;
-                Logger.getLogger("").setLevel(Level.FINE);
-            }
-        }
-
-        // discover the handler
-        for (Handler h : Logger.getLogger("").getHandlers()) {
-            // if there is a MASConsoleLogHandler, show it
-            if (h.getClass().toString().equals(MASConsoleLogHandler.class.toString())) {
-                MASConsoleGUI.get().getFrame().setVisible(true);
-                MASConsoleGUI.get().setAsDefaultOut();
-            }
-        }
+        String projectFileName = resolveProjectFileName(args);
+        initConfig();
+        configureLogging(args);
 
         int errorCode = 0;
-
         try {
-            InputStream inProject;
-            if (readFromJAR) {
-                inProject = RunCentralisedMAS.class.getResource("/"+defaultProjectFileName).openStream();
-                urlPrefix = SourcePath.CRPrefix + "/";
-            } else {
-                URL file;
-                // test if the argument is an URL
-                try {
-                    file = new URL(projectFileName);
-                    if (projectFileName.startsWith("jar")) {
-                        urlPrefix = projectFileName.substring(0,projectFileName.indexOf("!")+1) + "/";
-                    }
-                } catch (Exception e) {
-                    file = new URL("file:"+projectFileName);
-                }
-                inProject = file.openStream();
-            }
-            JaCaMoProjectParser parser = new JaCaMoProjectParser(inProject);
-
-            String directory = null;
-            try {
-                directory = new File(projectFileName).getAbsoluteFile().getParentFile().toString();
-            } catch (Exception e) {}
-            if (directory == null) {
-                directory = new File(".").getAbsoluteFile().getParentFile().toString();
-            }
-            try {
-                project = parser.parse(directory);
-            } catch (ParseException e) {
-                if (e.toString().startsWith("jacamo.project.parser.ParseException: Encountered \"MAS\"")) {
-                    // it is the case of a .mas2j file
-                    return super.init(args);
-                } else {
-                    logger.log(Level.SEVERE, "Error parsing file " + projectFileName + "!", e);
-                    errorCode = 3;
-                    return errorCode;
-                }
-            }
-            project.setupDefault();
-            getJaCaMoProject().setUrlPrefix(urlPrefix);
-            project.registerDirectives();
-            // set the aslSrcPath in the include
-            ((Include)DirectiveProcessor.getDirective("include")).setSourcePath(project.getSourcePaths());
-
-            if (MASConsoleGUI.hasConsole()) {
-                MASConsoleGUI.get().setTitle("MAS Console - " + project.getSocName());
-
-                if (!project.isJade()) {
-                    super.createButtons();
-                }
-            }
-            
-            // register jacamo archs
-            getRuntimeServices().registerDefaultAgArch(JaCaMoAgArch.class.getName());
-            getRuntimeServices().registerDefaultAgArch(CAgentArch.class.getName());
-            
-            errorCode = 0;
-
+            errorCode = loadProject(projectFileName, args);
         } catch (FileNotFoundException e1) {
             logger.log(Level.SEVERE, "File " + projectFileName + " not found!");
             errorCode = 2;
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.log(Level.SEVERE, "Error!?: ", e);
             errorCode = 4;
         }
@@ -206,6 +108,116 @@ public class JaCaMoLauncher extends RunCentralisedMAS {
             System.exit(errorCode);
         }
         return errorCode;
+    }
+
+    private String resolveProjectFileName(String[] args) {
+        if (args.length < 1) {
+            if (RunCentralisedMAS.class.getResource("/"+defaultProjectFileName) != null) {
+                readFromJAR = true;
+                Config.get(false); // to void to call fix/store the configuration in this case everything is read from a jar/jnlp file
+                return defaultProjectFileName;
+            } else {
+                System.out.println("JaCaMo "+Config.get().getJaCaMoVersion());
+                System.err.println("You should inform the project file.");
+                JOptionPane.showMessageDialog(null,"You should inform the project file as a parameter.\n\nJaCaMo version "+Config.get().getJaCaMoVersion(),"JaCaMo", JOptionPane.INFORMATION_MESSAGE);
+                System.exit(0);
+                return null;
+            }
+        } else {
+            Config.get(); // to setup the JaCaMo Config
+            return args[0];
+        }
+    }
+
+    private void initConfig() {
+        // jacamo.jar and moise.jar must be configured (for includes)
+        if (Config.get().getJaCaMoHome().isEmpty() || Config.get().get(Config.MOISE_JAR) == null) {
+            //if (Config.get().getUserConfFile().exists())
+            //    System.out.println("JaCaMo is not configured, creating a default configuration.");
+            //else
+            Config.get().setShowFixMsgs(false);
+            Config.get().fix();             
+        }
+    }
+
+    private void configureLogging(String[] args) {
+        setupLogger();
+
+        if (args.length >= 2 && args[1].equals("-debug")) {
+            debug = true;
+            Logger.getLogger("").setLevel(Level.FINE);
+        }
+
+        // discover the handler
+        for (Handler h : Logger.getLogger("").getHandlers()) {
+            // if there is a MASConsoleLogHandler, show it
+            if (h.getClass().toString().equals(MASConsoleLogHandler.class.toString())) {
+                MASConsoleGUI.get().getFrame().setVisible(true);
+                MASConsoleGUI.get().setAsDefaultOut();
+            }
+        }
+    }
+
+    private InputStream openProjectInputStream(String projectFileName) throws IOException {
+        if (readFromJAR) {
+            urlPrefix = SourcePath.CRPrefix + "/";
+            return RunCentralisedMAS.class.getResource("/"+defaultProjectFileName).openStream();
+        }
+        URL file;
+        // test if the argument is an URL
+        try {
+            file = new URL(projectFileName);
+            if (projectFileName.startsWith("jar")) {
+                urlPrefix = projectFileName.substring(0,projectFileName.indexOf("!")+1) + "/";
+            }
+        } catch (IOException e) {
+            file = new URL("file:"+projectFileName);
+        }
+        return file.openStream();
+    }
+
+    private String resolveProjectDirectory(String projectFileName) {
+        try {
+            return new File(projectFileName).getAbsoluteFile().getParentFile().toString();
+        } catch (RuntimeException e) {
+            return new File(".").getAbsoluteFile().getParentFile().toString();
+        }
+    }
+
+    private int loadProject(String projectFileName, String[] args) throws IOException {
+        InputStream inProject = openProjectInputStream(projectFileName);
+        JaCaMoProjectParser parser = new JaCaMoProjectParser(inProject);
+        String directory = resolveProjectDirectory(projectFileName);
+
+        try {
+            project = parser.parse(directory);
+        } catch (ParseException e) {
+            if (e.toString().startsWith("jacamo.project.parser.ParseException: Encountered \"MAS\"")) {
+                // it is the case of a .mas2j file
+                return super.init(args);
+            } else {
+                logger.log(Level.SEVERE, "Error parsing file " + projectFileName + "!", e);
+                return 3;
+            }
+        }
+        project.setupDefault();
+        getJaCaMoProject().setUrlPrefix(urlPrefix);
+        project.registerDirectives();
+        // set the aslSrcPath in the include
+        ((Include)DirectiveProcessor.getDirective("include")).setSourcePath(project.getSourcePaths());
+
+        if (MASConsoleGUI.hasConsole()) {
+            MASConsoleGUI.get().setTitle("MAS Console - " + project.getSocName());
+            if (!project.isJade()) {
+                super.createButtons();
+            }
+        }
+        
+        // register jacamo archs
+        getRuntimeServices().registerDefaultAgArch(JaCaMoAgArch.class.getName());
+        getRuntimeServices().registerDefaultAgArch(CAgentArch.class.getName());
+        
+        return 0;
     }
 
     void createCustomPlatforms() {

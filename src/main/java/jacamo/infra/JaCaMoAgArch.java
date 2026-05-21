@@ -34,22 +34,31 @@ public class JaCaMoAgArch extends AgArch {
         // change the implementation of .create_agent for this agent, use jacamo create agent instead of jason create agent
         //getTS().getAg().setIA("jason.stdlib.create_agent", new jacamo.create_agent());
 
-        JaCaMoAgentParameters ap = null;
-        try {
-            ap = (JaCaMoAgentParameters)getTS().getSettings().getUserParameters().get(Settings.PROJECT_PARAMETER);
-        } catch (Exception e) {
-            getTS().getLogger().warning("error getting parameters to init JaCaMoAgArch! "+e);
-            return;
-        }
-
+        JaCaMoAgentParameters ap = getAgentParameters();
         if (ap == null)
             return;
 
         getTS().getLogger().fine("Using parameters from project "+ap.getProject().getSocName()+" for agent "+ap.getAgName());
 
         ListTerm lart = new ListTermImpl();  // list used to produce a goal to join/focus on artifacts
-        ListTerm tail = lart;
+        ListTerm tail = processWorkspaces(ap, lart);
+        processFocus(ap, lart, tail);
+        ListTerm lroles = processRoles(ap, lart);
 
+        addGoals(lart, lroles);
+    }
+
+    private JaCaMoAgentParameters getAgentParameters() {
+        try {
+            return (JaCaMoAgentParameters)getTS().getSettings().getUserParameters().get(Settings.PROJECT_PARAMETER);
+        } catch (Exception e) {
+            getTS().getLogger().warning("error getting parameters to init JaCaMoAgArch! "+e);
+            return null;
+        }
+    }
+
+    private ListTerm processWorkspaces(JaCaMoAgentParameters ap, ListTerm lart) {
+        ListTerm tail = lart;
         // get my WSPs from AgentParameters
         for (String wId: ap.getWorkspaces()) {
             try {
@@ -58,22 +67,9 @@ public class JaCaMoAgArch extends AgArch {
                     getTS().getLogger().warning("**** Workspace "+wId+" is not defined! The agent will not join it.");
                     continue;
                 }
-                String host = null;
-                // it seems that join (remote at least) here is not working....
-                // I added a goal for the agent to join (see below)
-                //OpFeedbackParam<WorkspaceId> res = new OpFeedbackParam<WorkspaceId>();
-                if (w.getNode() != null && !ap.getProject().isInDeployment(w.getNode())) { // there is a node and this node is not deployed locally, then it is a remote workspace
-                    host = ap.getProject().getNodeHost(w.getNode());
-                    if (host == null) {
-                        getTS().getLogger().warning("**** No host is defined for node "+w.getNode()+"! The agent will not join workspace "+w.getName());
-                        continue;
-                    //} else {
-                        //agent.getSession().doAction(new Op("joinRemoteWorkspace", w.getName(), h, res), null, -1);
-                    }
-                } else {
-                    host = "local";
-                    //agent.getSession().doAction(new Op("joinWorkspace", w.getName(), res), null, -1);
-                }
+                String host = resolveWorkspaceHost(ap, w);
+                if (host == null) continue;
+
                 Literal art = ASSyntax.createLiteral("art_env",
                         ASSyntax.createAtom(w.getName()), // workspace
                         ASSyntax.createString(host), // host
@@ -124,7 +120,29 @@ public class JaCaMoAgArch extends AgArch {
                 getTS().getLogger().log(Level.SEVERE,"error joining workspace "+wId,e);
             }
         }
+        return tail;
+    }
 
+    private String resolveWorkspaceHost(JaCaMoAgentParameters ap, JaCaMoWorkspaceParameters w) {
+        // it seems that join (remote at least) here is not working....
+        // I added a goal for the agent to join (see below)
+        //OpFeedbackParam<WorkspaceId> res = new OpFeedbackParam<WorkspaceId>();
+        if (w.getNode() != null && !ap.getProject().isInDeployment(w.getNode())) { // there is a node and this node is not deployed locally, then it is a remote workspace
+            String host = ap.getProject().getNodeHost(w.getNode());
+            if (host == null) {
+                getTS().getLogger().warning("**** No host is defined for node "+w.getNode()+"! The agent will not join workspace "+w.getName());
+                return null;
+            //} else {
+                //agent.getSession().doAction(new Op("joinRemoteWorkspace", w.getName(), h, res), null, -1);
+            }
+            return host;
+        } else {
+            //agent.getSession().doAction(new Op("joinWorkspace", w.getName(), res), null, -1);
+            return "local";
+        }
+    }
+
+    private void processFocus(JaCaMoAgentParameters ap, ListTerm lart, ListTerm tail) {
         // focus on artifacts
         for (String[] f: ap.getFocus()) {
             String host = ap.getProject().getWorkspaceHost(f[1]);
@@ -138,17 +156,18 @@ public class JaCaMoAgArch extends AgArch {
             if (!lart.contains(art))
                 tail = tail.append(art);
         }
+    }
 
+    private ListTerm processRoles(JaCaMoAgentParameters ap, ListTerm lart) {
         // focus on group artifacts and adopt roles
         ListTerm lroles = new ListTermImpl();
-        tail = lroles;
-        String host = null;
+        ListTerm tail = lroles;
         for (String[] r: ap.getRoles()) {
             if (r[0] == null) {
                 getTS().getLogger().warning("No organisation for group "+r[1]+"! Ignoring role "+r[2]);
                 continue;
             }
-            host = ap.getProject().getWorkspaceHost(r[0]);
+            String host = ap.getProject().getWorkspaceHost(r[0]);
             if (host == null)
                 host = "local";
             Literal role = ASSyntax.createLiteral("role",
@@ -178,7 +197,10 @@ public class JaCaMoAgArch extends AgArch {
                     lart.append(art);
             }
         }
+        return lroles;
+    }
 
+    private void addGoals(ListTerm lart, ListTerm lroles) {
         if (! lart.isEmpty()) {
             if (getTS().getLogger().isLoggable(Level.FINE)) getTS().getLogger().fine("producing goal to focus on "+lart);
             Intention i = new Intention();
